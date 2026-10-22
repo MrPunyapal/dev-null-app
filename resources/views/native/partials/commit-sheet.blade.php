@@ -6,7 +6,7 @@
     handle over the sheet, as iOS does, so the bar starts at the top there too. The title is centred.
     Cancel closes it as a swipe does, keeping the draft. If devnull says no, why shows here and the draft stays. The
     Log's compose button opens the same composer for a new commit, without the card. A draft stashed last time comes
-    back in it, with the web's stash@{0} and drop on the left of the counter's row.
+    back in it, with the web's stash@{0} and drop beside the counter, in the toolbar at the bottom.
 
     Report commit, in someone else's published commit's More menu, opens it as the web's Report dialog: the private,
     not-hidden line, the commit's body clamped to three lines, the four reasons, optional details, and Send report,
@@ -17,23 +17,33 @@
     field, its placeholder in it, and Open issue (the same check) in Commit's place in the bar. Opened, the sheet says
     so, with View issue and Done.
 
+    A commit's page opens its reply here too, as "Reply to @handle", with the commit being answered as a static card
+    over the field, for the photos and the preview its reply bar has no room for. Commit says Reply there.
+
+    Under what's being written come its photos and the poll editor. A toolbar is pinned to the bottom of the sheet, so
+    it stays just above the keyboard: the tools on the left, photos, the camera, a poll (not on a reply) and the
+    preview, which shows the draft as the commit it would become in place of the field (see AttachesToCommits), and
+    stash@{0} and the counter on the right. An issue draft has no tools, as on the web. With photos, Commit spins while
+    they upload, and no body at all will do.
+
     It's full height for the forms, and short for the receipts. It's always on the screen, shown or not, so iOS can
     slide it away and say when it's gone.
 --}}
 <native:bottom-sheet ref="sheet" handle-over-content :visible="$sheetOpen" :detents="in_array($sheetView, ['reported', 'issued'], true) ? '0.3' : 'large'" @dismiss="commitSheetClosed">
     @if ($sheetCommit || in_array($sheetView, ['compose', 'issued'], true))
-        @if (in_array($sheetView, ['quote', 'compose'], true))
+        @if (in_array($sheetView, ['quote', 'compose', 'reply'], true))
             @php($quoting = $sheetView === 'quote')
+            @php($replying = $sheetView === 'reply')
             @php($issueCommand = $sheetIssue === null ? null : \App\Devnull\IssueCommand::from($sheetIssue))
             <native:column class="w-full flex-1">
-                @php($fits = \App\Devnull\Data\Commit::fits($sheetBody))
+                @php($canCommit = \App\Devnull\Data\Draft::canCommit($sheetBody, $sheetImages, $replying ? null : $sheetPoll))
                 <native:row class="w-full p-4 items-center gap-3">
                     @include('native.partials.sheet-bar-button', ['ref' => 'sheet-cancel', 'icon' => \App\Icons\Lucide::X, 'label' => 'Cancel', 'hint' => 'Keeps your draft for next time', 'press' => 'hideCommitSheet'])
-                    <native:text font="semibold" class="flex-1 text-center text-base android:text-lg text-theme-ink" :max-lines="1">{{ $quoting ? 'Quote '.$sheetCommit->author->handle() : 'New commit' }}</native:text>
+                    <native:text font="semibold" class="flex-1 text-center text-base android:text-lg text-theme-ink" :max-lines="1">{{ match (true) { $quoting => 'Quote '.$sheetCommit->author->handle(), $replying => 'Reply to '.$sheetCommit->author->handle(), default => 'New commit' } }}</native:text>
                     @if ($issueCommand)
                         @include('native.partials.sheet-bar-button', ['ref' => 'sheet-open-issue', 'icon' => \App\Icons\Lucide::Check, 'label' => 'Open issue', 'main' => true, 'loading' => $openingIssue, 'press' => $openingIssue || ! \App\Devnull\IssueCommand::fits($sheetBody) ? null : 'openIssueFromSheet'])
                     @else
-                        @include('native.partials.sheet-bar-button', ['ref' => 'sheet-commit', 'icon' => \App\Icons\Lucide::Check, 'label' => 'Commit', 'main' => true, 'loading' => $sheetPosting, 'press' => $sheetPosting || ! $fits ? null : 'commitFromSheet'])
+                        @include('native.partials.sheet-bar-button', ['ref' => 'sheet-commit', 'icon' => \App\Icons\Lucide::Check, 'label' => $replying ? 'Reply' : 'Commit', 'main' => true, 'loading' => $sheetPosting, 'press' => $sheetPosting || ! $canCommit ? null : 'commitFromSheet'])
                     @endif
                 </native:row>
                 <native:column class="w-full h-[1] bg-theme-hairline" />
@@ -47,41 +57,60 @@
                             @include('native.partials.issue-badge', ['command' => $issueCommand])
                         @endif
 
-                        <native:bare-text-input
-                            ref="sheet-body"
-                            class="w-full text-theme-ink"
-                            :placeholder="$issueCommand?->placeholder() ?? ($quoting ? 'Add your take' : 'What did you ship?')"
-                            native:model.debounce.150ms="sheetBody"
-                            autofocus
-                            multiline
-                            :max-lines="8"
-                            :max-length="$issueCommand ? \App\Devnull\Data\Commit::MaxLength : \App\Devnull\Data\Commit::MaxRawLength"
-                            size="lg"
-                            a11y-label="Your commit"
-                        />
-
-                        @if (! $issueCommand && \App\Devnull\Data\CommitBody::hasOversizedUrl($sheetBody))
-                            <native:text ref="sheet-link-error" class="w-full text-sm text-theme-destructive">Each link must not be greater than {{ \App\Devnull\Data\BodyLink::MaxLength }} characters.</native:text>
+                        @if ($replying)
+                            @include('native.partials.quoted-commit', ['quoted' => $sheetCommit, 'static' => true, 'label' => 'Replying to'])
                         @endif
 
-                        @if ($quoting)
-                            @include('native.partials.quoted-commit', ['quoted' => $sheetCommit, 'static' => true])
-                        @elseif (! $issueCommand)
-                            @include('native.partials.issue-suggestions', [
-                                'suggestions' => $sheetTyped ? \App\Devnull\IssueCommand::suggested($sheetBody) : [],
-                                'hint' => $issueHintsDismissed ? null : \App\Devnull\IssueCommand::hinted($sheetBody),
-                            ])
-                        @endif
+                        @if ($previewing)
+                            @include('native.partials.composer-preview')
+                        @else
+                            <native:bare-text-input
+                                ref="sheet-body"
+                                class="w-full text-theme-ink"
+                                :placeholder="$issueCommand?->placeholder() ?? match (true) { $quoting => 'Add your take', $replying => 'Reply to '.$sheetCommit->author->handle(), default => 'What did you ship?' }"
+                                native:model.debounce.150ms="sheetBody"
+                                autofocus
+                                multiline
+                                :max-lines="8"
+                                :max-length="$issueCommand ? \App\Devnull\Data\Commit::MaxLength : \App\Devnull\Data\Commit::MaxRawLength"
+                                size="lg"
+                                a11y-label="Your commit"
+                            />
 
-                        <native:row class="w-full gap-3 items-center justify-end">
-                            @if ($sheetRestored)
-                                @include('native.partials.stash-label', ['ref' => 'sheet-stash', 'drop' => 'dropSheetStash'])
-                                <native:spacer />
+                            @if (! $issueCommand && \App\Devnull\Data\CommitBody::hasOversizedUrl($sheetBody))
+                                <native:text ref="sheet-link-error" class="w-full text-sm text-theme-destructive">Each link must not be greater than {{ \App\Devnull\Data\BodyLink::MaxLength }} characters.</native:text>
                             @endif
-                            @include('native.partials.body-counter', ['body' => $sheetBody, 'ref' => 'sheet-budget', 'literal' => $issueCommand !== null])
-                        </native:row>
+
+                            @include('native.partials.composer-photos')
+
+                            @if ($sheetPoll !== null && ! $replying)
+                                @include('native.partials.poll-editor')
+                            @endif
+
+                            @if ($quoting)
+                                @include('native.partials.quoted-commit', ['quoted' => $sheetCommit, 'static' => true])
+                            @elseif (! $replying && ! $issueCommand)
+                                @include('native.partials.issue-suggestions', [
+                                    'suggestions' => $sheetTyped ? \App\Devnull\IssueCommand::suggested($sheetBody) : [],
+                                    'hint' => $issueHintsDismissed ? null : \App\Devnull\IssueCommand::hinted($sheetBody),
+                                ])
+                            @endif
+                        @endif
+
                     </native:column>
                 </native:scroll-view>
+                {{-- Pinned under the scroll view, so it rides just above the keyboard, and above the home indicator without it. --}}
+                <native:column class="w-full h-[1] bg-theme-hairline" />
+                <native:row ref="sheet-toolbar" class="w-full pl-3 pr-5 py-1 gap-3 items-center">
+                    @unless ($issueCommand)
+                        @include('native.partials.composer-tools')
+                    @endunless
+                    <native:spacer />
+                    @if ($sheetRestored)
+                        @include('native.partials.stash-label', ['ref' => 'sheet-stash', 'drop' => 'dropSheetStash'])
+                    @endif
+                    @include('native.partials.body-counter', ['body' => $sheetBody, 'ref' => 'sheet-budget', 'literal' => $issueCommand !== null])
+                </native:row>
             </native:column>
         @elseif ($sheetView === 'report')
             <native:scroll-view ref="report-form" class="w-full flex-1">

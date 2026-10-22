@@ -6,7 +6,8 @@ use App\Devnull\Data\Commit;
 
 /**
  * What a commit row and a thread reply show besides their partial's data, for
- * RowCache to keep them against: what the partials read from the screen, and
+ * RowCache to keep them against: what the partials read from the screen, such
+ * as the option you picked on a poll and whether your vote is on its way, and
  * what they work out from the time.
  *
  * Images aren't here: ImageCache draws each URL the same way for as long as
@@ -35,6 +36,7 @@ final class RowInputs
             'tombstones' => $scope['tombstones'] ?? false,
             'tombstoneReplies' => array_key_exists($commit->id, $scope['tombstoneReplies'] ?? []),
             'shown' => [self::changing($commit), $commit->quotedCommit === null ? null : self::changing($commit->quotedCommit)],
+            'poll' => [$scope['pollChoices'][$commit->id] ?? null, in_array($commit->id, $scope['voting'] ?? [], true)],
         ];
     }
 

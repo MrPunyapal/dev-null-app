@@ -19,6 +19,10 @@ use Native\Mobile\AsyncTask;
  * apart cost two renders where one will do, and rows drawn before their
  * images came would load them from their URLs. The Log's next page asks for
  * this, since it waits in memory until you scroll near it anyway.
+ *
+ * A write's body goes with the type it was signed with: JSON, or multipart
+ * for a commit with photos. It comes last, since a task's arguments are
+ * passed in order.
  */
 final class FetchInBackground extends AsyncTask
 {
@@ -32,14 +36,14 @@ final class FetchInBackground extends AsyncTask
      * @param  array<string, string>  $headers
      * @return array{status: int, json: mixed, retry_after: string, from_devnull: bool}
      */
-    public function handle(string $url, array $headers, string $method = 'GET', string $body = '', bool $withImages = false, ?int $pruneBefore = null): array
+    public function handle(string $url, array $headers, string $method = 'GET', string $body = '', bool $withImages = false, ?int $pruneBefore = null, string $contentType = 'application/json'): array
     {
         if ($pruneBefore !== null) {
             DownloadImages::prune($pruneBefore);
         }
 
         try {
-            $response = Client::sendSigned(new SignedRequest($url, $headers, $method, $body));
+            $response = Client::sendSigned(new SignedRequest($url, $headers, $method, $body, $contentType));
         } catch (ConnectionException) {
             return ['status' => 0, 'json' => null, 'retry_after' => '', 'from_devnull' => false];
         }

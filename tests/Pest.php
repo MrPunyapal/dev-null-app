@@ -826,6 +826,29 @@ function dayMarkers(TestableComponent $screen): array
 }
 
 /**
+ * A photo as the camera or the photo library hands one over: a real image file
+ * of the given type and size, in a folder of its own outside the app's storage.
+ */
+function testPhoto(string $type = 'png', int $width = 40, int $height = 30): string
+{
+    $directory = sys_get_temp_dir().'/devnull-picked-'.bin2hex(random_bytes(6));
+    mkdir($directory);
+    $path = "{$directory}/picked.{$type}";
+
+    $image = imagecreatetruecolor($width, $height);
+    imagefill($image, 0, 0, (int) imagecolorallocate($image, 4, 171, 166));
+
+    match ($type) {
+        'jpg' => imagejpeg($image, $path),
+        'webp' => imagewebp($image, $path),
+        'gif' => imagegif($image, $path),
+        default => imagepng($image, $path),
+    };
+
+    return $path;
+}
+
+/**
  * A Remotes message as devnull sends it to someone in the conversation. Its segments follow its body unless a test
  * sends its own.
  *
