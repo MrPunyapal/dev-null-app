@@ -28,9 +28,12 @@ use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\View\View;
 use Native\Mobile\Attributes\Poll;
+use Native\Mobile\Edge\Element;
 use Native\Mobile\Edge\Layouts\Builders\NavAction;
 use Native\Mobile\Edge\Layouts\Builders\NavBarOptions;
 use Native\Mobile\Edge\NativeComponent;
+use Native\Mobile\Events\Async\AsyncTaskFailed;
+use Native\Mobile\Events\Async\AsyncTaskFinished;
 
 /**
  * The log: the web's three of them, Following (you and the people you follow),
@@ -82,10 +85,10 @@ use Native\Mobile\Edge\NativeComponent;
  * waiting on devnull while the phone kept scrolling, so you reached the
  * loading row and stayed on it. Now the page goes in a little before the end
  * (see NextPageWithin), or when the end comes, so it's usually there before
- * you are. A held page only follows on from the list it was cut from, so
- * it's let go when that list is replaced rather than added to: a fresh
- * ranking, another log, pull to refresh, or the pill replacing the list.
- * Cursor pages are never kept in the response cache.
+ * you are. Its images come down with it. A held page only follows on from
+ * the list it was cut from, so it's let go when that list is replaced rather
+ * than added to: a fresh ranking, another log, pull to refresh, or the pill
+ * replacing the list. Cursor pages are never kept in the response cache.
  */
 class Log extends NativeComponent
 {
@@ -226,6 +229,16 @@ class Log extends NativeComponent
      * @var array<string, array{0: string, 1: list<TimelineRow>}>
      */
     private array $timelines = [];
+
+    /**
+     * The time the last frame was drawn at.
+     */
+    private ?CarbonImmutable $drawnAt = null;
+
+    /**
+     * The frame about to be drawn follows a background task landing.
+     */
+    private bool $taskLanded = false;
 
     public function mount(): void
     {
@@ -550,6 +563,12 @@ class Log extends NativeComponent
      * refresh() would otherwise skip: that one may be for a list replaced
      * since, whose answer is let go, and the end of the list would wait on
      * nothing.
+     *
+     * The page's images come down with it, so its rows are drawn from the
+     * device from the start, and the page lands once rather than again when
+     * its images do (see FetchInBackground). A held page isn't drawn, so the
+     * frame it lands in matches the one before, which NativePHP doesn't send
+     * to the phone (see render()).
      */
     private function prefetchNextPage(): void
     {
@@ -570,6 +589,7 @@ class Log extends NativeComponent
             again: true,
             quiet: true,
             failed: fn () => $this->nextPageFailed($log, $cursor, $generation),
+            withImages: true,
         );
     }
 
@@ -937,7 +957,44 @@ class Log extends NativeComponent
         return $viewer === null ? null : app(LastVisit::class)->seenAt($viewer->id, $log ?? $this->log);
     }
 
-    public function render(): View
+    /**
+     * A background task landing draws its frame at the time the frame before
+     * it was drawn at (see render()).
+     *
+     * @param  array<string, mixed>  $event
+     */
+    protected function dispatchNativeEvent(array $event): void
+    {
+        $name = is_string($event['event'] ?? null) ? $event['event'] : '';
+
+        $this->taskLanded = in_array(str_starts_with($name, 'native:') ? substr($name, 7) : $name, [AsyncTaskFinished::class, AsyncTaskFailed::class], true);
+
+        parent::dispatchNativeEvent($event);
+    }
+
+    /**
+     * Draws the log at a time the whole frame shares. A frame drawn because a
+     * background task landed keeps the time of the frame before it, so its
+     * relative times, polls' time left and day markers read as they did.
+     *
+     * NativePHP draws a frame after every event, and only sends the phone a
+     * frame that differs from the last one. A next page that lands is held
+     * rather than drawn, so its frame would match the last one, except that a
+     * row's "4m" could have turned "5m" in between. With a dozen recent rows
+     * on screen that happened often, and every frame the phone gets costs its
+     * main thread a pass over the whole list. A scroll, a tap or the poll
+     * every 30 seconds draws at the time it happens, so times stay as fresh
+     * as they were.
+     */
+    public function render(): Element
+    {
+        $this->drawnAt = $this->taskLanded && $this->drawnAt !== null ? $this->drawnAt : CarbonImmutable::now();
+        $this->taskLanded = false;
+
+        return CarbonImmutable::withTestNow($this->drawnAt, fn (): Element => $this->fromView($this->frame()));
+    }
+
+    private function frame(): View
     {
         $viewer = $this->me();
 
