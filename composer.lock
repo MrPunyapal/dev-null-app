@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8bcaeeb71989e08fe920116ba3e08bcd",
+    "content-hash": "a5dfa4b4bf563e858153d3744a994e82",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -2717,16 +2717,16 @@
         },
         {
             "name": "nativephp/mobile",
-            "version": "dev-main",
+            "version": "dev-feat/gesture-area-bounded",
             "source": {
                 "type": "git",
                 "url": "https://github.com/NativePHP/mobile-air.git",
-                "reference": "2189e72363ea00965c17d35d8b127a2ae77093ad"
+                "reference": "64e04c285d2daa7a0029e849444a74c388b66041"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/NativePHP/mobile-air/zipball/2189e72363ea00965c17d35d8b127a2ae77093ad",
-                "reference": "2189e72363ea00965c17d35d8b127a2ae77093ad",
+                "url": "https://api.github.com/repos/NativePHP/mobile-air/zipball/64e04c285d2daa7a0029e849444a74c388b66041",
+                "reference": "64e04c285d2daa7a0029e849444a74c388b66041",
                 "shasum": ""
             },
             "require": {
@@ -2766,7 +2766,6 @@
             "suggest": {
                 "ext-zip": "Required by native:install to validate and extract the downloaded Android PHP binary archives"
             },
-            "default-branch": true,
             "type": "library",
             "extra": {
                 "laravel": {
@@ -2834,10 +2833,10 @@
                 "nativephp"
             ],
             "support": {
-                "source": "https://github.com/NativePHP/mobile-air/tree/main",
+                "source": "https://github.com/NativePHP/mobile-air/tree/feat/gesture-area-bounded",
                 "issues": "https://github.com/NativePHP/mobile-air/issues"
             },
-            "time": "2026-10-24T01:35:48+00:00"
+            "time": "2026-10-24T02:10:34+00:00"
         },
         {
             "name": "nativephp/mobile-browser",
@@ -3061,16 +3060,16 @@
         },
         {
             "name": "nativephp/mobile-ui",
-            "version": "dev-main",
+            "version": "dev-feat/gesture-area-bounded",
             "source": {
                 "type": "git",
                 "url": "https://github.com/NativePHP/mobile-ui.git",
-                "reference": "0abe5d24dc6c8749ac27a651c66f6b8154459d61"
+                "reference": "d135f295e8d6684868fb9d48f7e7782243520bee"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/NativePHP/mobile-ui/zipball/0abe5d24dc6c8749ac27a651c66f6b8154459d61",
-                "reference": "0abe5d24dc6c8749ac27a651c66f6b8154459d61",
+                "url": "https://api.github.com/repos/NativePHP/mobile-ui/zipball/d135f295e8d6684868fb9d48f7e7782243520bee",
+                "reference": "d135f295e8d6684868fb9d48f7e7782243520bee",
                 "shasum": ""
             },
             "require": {
@@ -3082,7 +3081,6 @@
                 "orchestra/testbench": "^10.0",
                 "pestphp/pest": "^3.0"
             },
-            "default-branch": true,
             "type": "nativephp-plugin",
             "extra": {
                 "laravel": {
@@ -3121,7 +3119,7 @@
             ],
             "description": "Native SwiftUI and Jetpack Composer components for NativePHP",
             "support": {
-                "source": "https://github.com/NativePHP/mobile-ui/tree/main",
+                "source": "https://github.com/NativePHP/mobile-ui/tree/feat/gesture-area-bounded",
                 "issues": "https://github.com/NativePHP/mobile-ui/issues"
             },
             "funding": [
@@ -3130,7 +3128,7 @@
                     "url": "https://nativephp.com/sponsor"
                 }
             ],
-            "time": "2026-10-24T01:25:19+00:00"
+            "time": "2026-10-24T02:05:19+00:00"
         },
         {
             "name": "nesbot/carbon",
@@ -11132,13 +11130,13 @@
     "aliases": [
         {
             "package": "nativephp/mobile",
-            "version": "dev-main",
+            "version": "dev-feat/gesture-area-bounded",
             "alias": "4.6.0",
             "alias_normalized": "4.6.0.0"
         },
         {
             "package": "nativephp/mobile-ui",
-            "version": "dev-main",
+            "version": "dev-feat/gesture-area-bounded",
             "alias": "0.8.0",
             "alias_normalized": "0.8.0.0"
         }
