@@ -1,8 +1,9 @@
 {{--
     A message's body, drawn from its segments as a commit's is (see partials/commit-body): prose with tappable
-    mentions and inline code, quotes behind a rule on the left, and fenced code as mono text in a box. $ink is the
-    bubble's text colour, so a body on your lane reads in that lane's label colour, and $quoteRule the quote's rule:
-    amber, or the label colour on your lane, as the web's pale rule in your own bubbles.
+    mentions and inline code, hex colors beside their swatch, quotes behind a rule on the left, and fenced code as
+    mono text in a box. $ink is the bubble's text colour, so a body on your lane reads in that lane's label colour,
+    and $quoteRule the quote's rule: amber, or the label colour on your lane, as the web's pale rule in your own
+    bubbles.
 --}}
 @foreach ($message->content as $block)
     @if ($block->isCode())
@@ -18,6 +19,8 @@
 <native:text :text="$run->text" font="semibold" class="font-semibold {{ $mentionInk }}" @press="openProfile('{{ $run->username }}')" />
 @elseif ($run->isCode)
 <native:text :text="$run->text" font="mono" class="text-[13px]" />
+@elseif ($run->isColor())
+<native:text><native:text text="■" class="text-[#{{ $run->color }}] dark:text-[#{{ $run->color }}]" />&#x202F;<native:text :text="$run->text" /></native:text>
 @else
 <native:text :text="$run->text" />
 @endif
