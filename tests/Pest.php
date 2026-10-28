@@ -684,6 +684,14 @@ function findNode(array $node, callable $matches): ?array
 }
 
 /**
+ * Whether anything with this ref was rendered.
+ */
+function rendersRef(TestableComponent $screen, string $ref): bool
+{
+    return findNode($screen->tree(), fn (array $node): bool => ($node['ref'] ?? null) === $ref) !== null;
+}
+
+/**
  * Every node in a rendered tree that matches, in order.
  *
  * @param  array<string, mixed>  $node
