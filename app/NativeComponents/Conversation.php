@@ -6,6 +6,7 @@ use App\Devnull\Account;
 use App\Devnull\Client;
 use App\Devnull\Data\Commit;
 use App\Devnull\Data\Conversation as ConversationData;
+use App\Devnull\Data\DraftImage;
 use App\Devnull\Data\Message;
 use App\Devnull\Data\Thread;
 use App\Devnull\Data\User;
@@ -19,6 +20,7 @@ use App\Devnull\SiteLink;
 use App\Devnull\Toasts;
 use App\Icons\Lucide;
 use App\Models\PendingWrite;
+use App\NativeComponents\Concerns\AttachesPhotos;
 use App\NativeComponents\Concerns\OpensInTab;
 use App\NativeComponents\Concerns\RefreshesInBackground;
 use App\NativeComponents\Concerns\SyncsOutbox;
@@ -35,6 +37,7 @@ use Native\Mobile\Edge\NativeComponent;
 use Native\Mobile\Edge\SharedValue;
 use Native\Mobile\Events\Alert\ButtonPressed;
 use Native\Mobile\Facades\Browser;
+use Native\Mobile\Facades\Device;
 use Native\Mobile\Facades\Dialog;
 
 /**
@@ -52,7 +55,9 @@ use Native\Mobile\Facades\Dialog;
  *
  * A message you push shows staged at once, then pushed once devnull has it,
  * or rejected with a retry, which sends it again under the same client id so
- * it's never stored twice. It goes through the outbox (see SyncsOutbox), so
+ * it's never stored twice. It can have up to three photos, as on the web,
+ * with or without text (see AttachesPhotos), and they show with it while it
+ * goes. It goes through the outbox (see SyncsOutbox), so
  * it's still staged or rejected when you come back to the thread, and one
  * still on its way when the app closed goes again when it next opens. A
  * toast says why devnull didn't take one, wherever you are by then, with a
@@ -68,12 +73,18 @@ use Native\Mobile\Facades\Dialog;
  * beside each one in the thread. Pinning and unpinning show at once and go
  * back if devnull says no, and pins from the others come with the polls.
  *
+ * The composer's Ping pings them, or everyone in an org, as MSN Messenger
+ * had: it lands in the thread as a log line. A ping coming in or going out
+ * while you're on the thread buzzes the phone, as the web shakes the thread
+ * to MSN's sound, unless it's someone else's in a thread you've muted.
+ *
  * When the composer can't push (a request to merge, your own request waiting,
  * someone who doesn't follow you, or has Remotes off), the bar says so in the
  * web's words, and a request offers Merge and Drop.
  */
 class Conversation extends NativeComponent
 {
+    use AttachesPhotos;
     use OpensInTab;
     use RefreshesInBackground;
     use SyncsOutbox;
@@ -194,24 +205,52 @@ class Conversation extends NativeComponent
 
     public string $draft = '';
 
+    /**
+     * The photos on the draft, which go with it when you push.
+     *
+     * @var list<DraftImage>
+     */
+    public array $photos = [];
+
     public ?int $replyToId = null;
 
     /**
-     * Mounts the composer's field afresh when you pick a message to reply to, so it takes focus and raises the
-     * keyboard, as the web focuses its field.
+     * Mounts the composer's field afresh when it should take focus and raise the keyboard, as the web focuses its
+     * field: replying while the field is idle, or attaching photos.
      */
     public int $composerKey = 0;
 
     /**
-     * The composer bar's height with one line in its field: its top line, then the field and Push with 8 points
-     * above and below.
+     * Whether the field is in use, as far as the thread can tell. EDGE sends no focus event, so pressing into the
+     * field or typing in it says so. The field keeps the keyboard through presses elsewhere (keep-focus), so a reply
+     * then leaves it be instead of mounting it afresh, which would drop the keyboard and raise it again. Leaving the
+     * thread lets go of it.
      */
-    public const int ComposerBarHeight = 46;
+    public bool $composing = false;
+
+    /**
+     * The composer bar's height with one line in its field, the same as the reply bar on a commit's page: its top
+     * line, then the field, its tools and Push with 8 points above and below.
+     */
+    public const int ComposerBarHeight = Display::ReplyBarHeight;
 
     /**
      * The "Replying to …" bar above the field.
      */
     public const int ReplyingBarHeight = 44;
+
+    /**
+     * The photos on the draft above the field, and the description of one under them while it's open.
+     */
+    public const int PhotosHeight = 88;
+
+    public const int DescriptionHeight = 100;
+
+    /**
+     * The latest ping the thread has shown, so only one after it buzzes. Null until the thread first loads from
+     * devnull, as pings already there when it opened stay still.
+     */
+    public ?int $seenPingId = null;
 
     /**
      * The message whose React, Reply and Pin show beside it, as the web shows them on hover. Dragging a message aside
@@ -341,6 +380,7 @@ class Conversation extends NativeComponent
             return;
         }
 
+        $this->composing = false;
         $this->forgetRefreshes();
         $this->showKept();
         $this->showPending();
@@ -422,19 +462,23 @@ class Conversation extends NativeComponent
     }
 
     /**
-     * Pushes what's in the composer, staged at once, as the web does.
+     * Pushes what's in the composer, its text, its photos or both, staged at once, as the web does.
      */
     public function send(): void
     {
         $body = trim($this->draft);
         $me = $this->me();
 
-        if ($body === '' || mb_strlen($body) > Message::MaxLength || $me === null || $this->thread?->access !== Thread::Open) {
+        if (($body === '' && $this->photos === []) || mb_strlen($body) > Message::MaxLength || $me === null || $this->thread?->access !== Thread::Open) {
             return;
         }
 
-        $message = Message::staged($me->id, (string) Str::uuid(), $body, $this->findMessage($this->replyToId));
-        $write = app(Outbox::class)->add(PendingWrite::Message, $this->threadPath(), ['body' => $body, 'reply_to_id' => $message->replyToId], $message->clientId);
+        $message = Message::staged($me->id, (string) Str::uuid(), $body, $this->findMessage($this->replyToId), $this->photos);
+        $write = app(Outbox::class)->add(PendingWrite::Message, $this->threadPath(), [
+            'body' => $body,
+            'reply_to_id' => $message->replyToId,
+            'images' => PendingWrite::imagePayload($this->photos),
+        ], $message->clientId);
 
         if ($write === null) {
             return;
@@ -442,6 +486,8 @@ class Conversation extends NativeComponent
 
         $this->pending[] = $message;
         $this->draft = '';
+        $this->photos = [];
+        $this->describing = null;
         $this->replyToId = null;
         $this->lastActivityAt = self::now();
         $this->lastTypingAt = 0;
@@ -462,10 +508,37 @@ class Conversation extends NativeComponent
     }
 
     /**
+     * The composer's Ping, as the web's: it lands in the thread as a log line, and buzzes as one coming in does. When
+     * devnull won't take it, such as before anyone has said anything or after three in a minute, a toast says why
+     * in its words.
+     */
+    public function ping(): void
+    {
+        if ($this->thread?->access !== Thread::Open) {
+            return;
+        }
+
+        $this->lastActivityAt = self::now();
+
+        $this->writeInBackground('POST', $this->threadPath().'/ping', null, function (array $json): void {
+            $ping = Message::fromArray(is_array($json['data'] ?? null) ? $json['data'] : []);
+
+            if ($ping->id > 0) {
+                $this->messages = self::merged($this->messages, [$ping]);
+                $this->readThroughId = max($this->readThroughId, $ping->id);
+                $this->noticePings();
+            }
+        }, function (string $error, ?ApiException $exception): void {
+            Toasts::failed($exception === null ? 'Could not ping. Try again.' : $error);
+        });
+    }
+
+    /**
      * Tells the others you're typing, at most every three seconds, while the composer has something in it.
      */
     public function updatedDraft(): void
     {
+        $this->composing = true;
         $now = self::now();
 
         if (trim($this->draft) === '' || $this->thread?->access !== Thread::Open || $now - $this->lastTypingAt < self::TypingPing || $this->lastId() === 0) {
@@ -644,7 +717,15 @@ class Conversation extends NativeComponent
         $this->reactionsFor = null;
         $this->sheetOpen = false;
         $this->reactsFromPinned = false;
-        $this->composerKey++;
+        $this->focusField(onlyIfIdle: true);
+    }
+
+    /**
+     * A press into the field: it has the keyboard now.
+     */
+    public function fieldPressed(): void
+    {
+        $this->composing = true;
     }
 
     /**
@@ -1058,8 +1139,7 @@ class Conversation extends NativeComponent
 
         $this->pending = app(Outbox::class)->pending(PendingWrite::Message, $this->threadPath(), withFailed: true)
             ->map(function (PendingWrite $write) use ($me): Message {
-                $replyTo = $write->payload['reply_to_id'] ?? null;
-                $message = Message::staged($me->id, $write->client_id, $write->body(), is_int($replyTo) ? $this->findMessage($replyTo) : null);
+                $message = Message::staged($me->id, $write->client_id, $write->body(), $this->findMessage($write->replyToId()), $write->images());
 
                 return $write->isFailed() ? $message->withStatus(Message::Rejected) : $message;
             })
@@ -1110,6 +1190,7 @@ class Conversation extends NativeComponent
             $this->headUntil = $this->lastId();
         }
 
+        $this->noticePings();
         $this->markRead();
     }
 
@@ -1146,7 +1227,36 @@ class Conversation extends NativeComponent
             $this->lastActivityAt = self::now();
         }
 
+        $this->noticePings();
         $this->markRead();
+    }
+
+    /**
+     * A ping newer than the last one the thread showed buzzes the phone, as the web shakes the thread to MSN's ping
+     * sound: always for yours, and for someone else's unless you've muted the thread.
+     */
+    private function noticePings(): void
+    {
+        $ping = null;
+
+        foreach (array_reverse($this->messages) as $message) {
+            if ($message->isPing()) {
+                $ping = $message;
+
+                break;
+            }
+        }
+
+        $seen = $this->seenPingId;
+        $this->seenPingId = max($seen ?? 0, $ping->id ?? 0);
+
+        if ($seen === null || $ping === null || $ping->id <= $seen) {
+            return;
+        }
+
+        if ($ping->userId === $this->me()?->id || ! ($this->thread?->isMuted() ?? false)) {
+            Device::vibrate();
+        }
     }
 
     /**
@@ -1237,6 +1347,57 @@ class Conversation extends NativeComponent
     private function menuTitle(): string
     {
         return $this->isOrg() ? $this->title() : '@'.$this->username;
+    }
+
+    /**
+     * @return list<DraftImage>
+     */
+    protected function attachedPhotos(): array
+    {
+        return $this->photos;
+    }
+
+    /**
+     * Photos just attached focus the field for a caption, as picking a message to reply to does. The keyboard coming
+     * up also brings the end of the thread back above the bar, which the photos have made taller.
+     *
+     * @param  list<DraftImage>  $photos
+     */
+    protected function photosChanged(array $photos): void
+    {
+        if (count($photos) > count($this->photos)) {
+            $this->focusField();
+        }
+
+        $this->photos = $photos;
+    }
+
+    /**
+     * Mounts the field afresh so it takes focus and raises the keyboard. A reply leaves a field already in use alone
+     * ($onlyIfIdle); photos always remount it, since the library's sheet has taken the keyboard down by then.
+     */
+    private function focusField(bool $onlyIfIdle = false): void
+    {
+        if (! $onlyIfIdle || ! $this->composing) {
+            $this->composerKey++;
+        }
+
+        $this->composing = true;
+    }
+
+    protected function takesPhotos(): bool
+    {
+        return $this->thread?->access === Thread::Open;
+    }
+
+    /**
+     * Why a photo won't do comes as a toast, from the top, clear of the composer.
+     */
+    protected function photoFailed(?string $error): void
+    {
+        if ($error !== null) {
+            Toasts::failed($error);
+        }
     }
 
     private function threadPath(): string
@@ -1440,7 +1601,7 @@ class Conversation extends NativeComponent
             'isOrg' => $this->isOrg(),
             'access' => $thread->access ?? Thread::Open,
             'items' => $this->items($viewer),
-            'composerClearance' => self::composerClearance($this->draft, $this->replyToId !== null),
+            'composerClearance' => self::composerClearance($this->draft, $this->replyToId !== null, $this->photos !== [], $this->describing !== null),
             'replyTo' => $this->findMessage($this->replyToId),
             'quickReactions' => $this->quickReactions(),
             'canPush' => $thread !== null && $thread->access === Thread::Open,
@@ -1449,6 +1610,7 @@ class Conversation extends NativeComponent
             'pinnedIds' => array_flip(array_map(fn (Message $message): int => $message->id, $this->pinned)),
             'longPins' => $this->longPins(),
             'placeholder' => $this->isOrg() ? 'Message '.($thread->orgName ?? 'the org') : 'Message @'.$this->username,
+            'pingLabel' => $this->isOrg() ? 'Ping everyone in the org' : 'Ping @'.$this->username,
             'muting' => $this->choosingMute ? 'thread' : null,
             'mutingTitle' => $this->menuTitle(),
         ]);
@@ -1515,14 +1677,18 @@ class Conversation extends NativeComponent
 
     /**
      * How far the thread pads its end to clear the composer bar: the bar with one line in its field, the lines the
-     * draft has grown by, the reply bar while replying, and a little room. The scroll view adds the home indicator
-     * itself while the keyboard is down, so this is the same either way.
+     * draft has grown by, the reply bar while replying, the photos and an open description, and a little room. The
+     * scroll view adds the home indicator itself while the keyboard is down, so this is the same either way.
      */
-    private static function composerClearance(string $draft, bool $replying): int
+    private static function composerClearance(string $draft, bool $replying, bool $hasPhotos, bool $describing): int
     {
         $grownBy = Display::replyBarClearance($draft) - Display::ReplyBarHeight - Display::HomeIndicatorHeight;
 
-        return self::ComposerBarHeight + $grownBy + ($replying ? self::ReplyingBarHeight : 0) + 8;
+        return self::ComposerBarHeight + $grownBy
+            + ($replying ? self::ReplyingBarHeight : 0)
+            + ($hasPhotos ? self::PhotosHeight : 0)
+            + ($hasPhotos && $describing ? self::DescriptionHeight : 0)
+            + 8;
     }
 
     /**
