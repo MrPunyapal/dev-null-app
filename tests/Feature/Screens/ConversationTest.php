@@ -311,17 +311,43 @@ it("shows an image-only message's actions beside its images", function () {
     expect(showsActions($screen, '1'))->toBeFalse();
 });
 
-it('opens the reactions from React, without Reply in them', function () {
+it("shows the web's quick reactions and More in a bubble pointing at React, and keeps the options up", function () {
     serveRemoteThread(threadJson([remoteMessageJson(['id' => 1])], ['read_through_id' => 1]));
 
     $screen = finishRefreshes(Native::visit('/remotes/conversations/ada'))
         ->dragEnd('swipe-1', -200)
         ->tap('react-1')
-        ->assertSet('sheetOpen', true)
+        ->assertSet('reactionsFor', 1)
+        ->assertSet('actionsForId', 1)
+        ->assertSet('sheetOpen', false);
+
+    $bubble = nodeByRef($screen, 'reactions-bubble');
+
+    expect($bubble['type'])->toBe('popover')
+        ->and($bubble['props']['visible'])->toBeTrue()
+        ->and(childRefs($screen, 'actions-1-buttons'))->toBe(['reply-1', 'react-1', 'reactions-bubble'])
+        ->and(childRefs($screen, 'quick-reactions'))->toBe(['quick-0', 'quick-1', 'quick-2', 'more-reactions']);
+
+    // A tap outside it closes it, and leaves the options up.
+    $screen->dismissSheet('reactions-bubble')
+        ->assertSet('reactionsFor', null)
+        ->assertSet('actionsForId', 1);
+
+    expect(rendersRef($screen, 'reactions-bubble'))->toBeFalse();
+});
+
+it('reacts from the bubble, and puts the bubble and the options away', function () {
+    serveRemoteThread(threadJson([remoteMessageJson(['id' => 1])], ['read_through_id' => 1]));
+
+    $screen = finishRefreshes(Native::visit('/remotes/conversations/ada'))->dragEnd('swipe-1', -200)->tap('react-1');
+
+    finishRefreshes($screen->tap('quick-2'))
+        ->assertSet('reactionsFor', null)
         ->assertSet('actionsForId', null);
 
-    expect(childRefs($screen, 'quick-reactions'))->not->toBeEmpty()
-        ->and(findNode($screen->tree(), fn (array $node): bool => ($node['ref'] ?? null) === 'reply'))->toBeNull();
+    expect(sentTo('POST', 'remotes/messages/1/reactions'))->toBe(['{"emoji":"❤️"}'])
+        ->and(rendersRef($screen, 'reactions-bubble'))->toBeFalse()
+        ->and(rendersRef($screen, 'chip-1-0'))->toBeTrue();
 });
 
 it('replies to a message from its Reply button, and raises the keyboard', function () {
@@ -392,6 +418,82 @@ it('reacts at once, and takes it back if devnull says no', function () {
     finishRefreshes($screen->call('toggleReaction', 1, '🚀'));
 
     expect($screen->instance()->messages[0]->reactions)->toBe([['user_id' => RemotesViewerId, 'emoji' => '❤️']]);
+});
+
+/**
+ * Whether the phone's emoji picker is up.
+ */
+function pickerShows(TestableComponent $screen): bool
+{
+    return nodeByRef($screen, 'emoji-picker')['props']['visible'] ?? false;
+}
+
+it("opens the phone's emoji picker from More in the bubble, and reacts with the emoji picked", function () {
+    serveRemoteThread(threadJson([remoteMessageJson(['id' => 1])], ['read_through_id' => 1]));
+
+    $screen = finishRefreshes(Native::visit('/remotes/conversations/ada'))->dragEnd('swipe-1', -200)->tap('react-1');
+
+    expect(pickerShows($screen))->toBeFalse();
+
+    $screen->tap('more-reactions')
+        ->assertSet('reactionsFor', null)
+        ->assertSet('emojiPickerFor', 1);
+
+    expect(pickerShows($screen))->toBeTrue()
+        ->and(rendersRef($screen, 'reactions-bubble'))->toBeFalse();
+
+    finishRefreshes($screen->select('emoji-picker', '🎉'))->assertSee('🎉');
+
+    expect(sentTo('POST', 'remotes/messages/1/reactions'))->toBe(['{"emoji":"🎉"}'])
+        ->and(pickerShows($screen))->toBeFalse();
+});
+
+it('takes back a reaction picked again, as the quick reactions do', function () {
+    serveRemoteThread(threadJson([remoteMessageJson(['id' => 1, 'reactions' => [['user_id' => RemotesViewerId, 'emoji' => '🎉']]])], ['read_through_id' => 1]));
+
+    finishRefreshes(finishRefreshes(Native::visit('/remotes/conversations/ada'))->call('openEmojiPicker', 1)->select('emoji-picker', '🎉'));
+
+    expect(sentTo('DELETE', 'remotes/messages/1/reactions'))->toBe(['{"emoji":"🎉"}']);
+});
+
+it('reacts with the emoji as devnull has it when the picker adds a skin tone or leaves out the variation selector', function (string $picked, string $sent) {
+    serveRemoteThread(threadJson([remoteMessageJson(['id' => 1])], ['read_through_id' => 1]));
+
+    finishRefreshes(finishRefreshes(Native::visit('/remotes/conversations/ada'))->call('openEmojiPicker', 1)->select('emoji-picker', $picked));
+
+    expect(array_map(fn (string $body): string => json_decode($body, true)['emoji'], sentTo('POST', 'remotes/messages/1/reactions')))->toBe([$sent]);
+})->with([
+    'a skin tone' => ['👍🏽', '👍'],
+    'a skin tone on an emoji that needs the variation selector' => ['✌🏽', '✌️'],
+    'a skin tone inside a sequence' => ['👩🏽‍💻', '👩‍💻'],
+    'no variation selector' => ['❤', '❤️'],
+    'as it is' => ['🫠', '🫠'],
+]);
+
+it("doesn't send an emoji devnull doesn't know, says so, and keeps the picker up for another", function (string $picked) {
+    serveRemoteThread(threadJson([remoteMessageJson(['id' => 1])], ['read_through_id' => 1]));
+
+    $screen = finishRefreshes(finishRefreshes(Native::visit('/remotes/conversations/ada'))->call('openEmojiPicker', 1)->select('emoji-picker', $picked));
+
+    expect(sentTo('POST', 'remotes/messages/1/reactions'))->toBe([])
+        ->and(array_column(array_column($this->bridge->callsTo('ToastKit.Show'), 'params'), 'message'))->toBe(["devnull doesn't take {$picked} as a reaction yet. Pick another."])
+        ->and(pickerShows($screen))->toBeTrue();
+
+    finishRefreshes($screen->select('emoji-picker', '🚀'));
+
+    expect(sentTo('POST', 'remotes/messages/1/reactions'))->toBe(['{"emoji":"🚀"}']);
+})->with([
+    'newer than devnull\'s set' => ['🐦‍🔥'],
+    'two skin tones in one' => ['🫱🏻‍🫲🏿'],
+]);
+
+it('sends nothing when the picker is closed without a pick', function () {
+    serveRemoteThread(threadJson([remoteMessageJson(['id' => 1])], ['read_through_id' => 1]));
+
+    $screen = finishRefreshes(Native::visit('/remotes/conversations/ada'))->call('openEmojiPicker', 1)->dismissSheet('emoji-picker');
+
+    expect(pickerShows($screen))->toBeFalse()
+        ->and(sentTo('POST', 'remotes/messages/1/reactions'))->toBe([]);
 });
 
 it("says why a message can't go, in the web's words, and merges or drops a request", function (string $access, string $words) {
@@ -861,7 +963,6 @@ it('shows the latest pinned message in a bar over the thread, which opens them a
 
     $screen->tap('pinned-bar')
         ->assertSet('sheetOpen', true)
-        ->assertSet('sheet', Conversation::PinnedSheet)
         ->assertSee('Pinned messages')
         ->assertSee('Yesterday · 10:02');
 
@@ -876,10 +977,15 @@ it('replies and reacts to a pinned message from the sheet, even one from before 
 
     $screen = finishRefreshes(Native::visit('/remotes/orgs/org-1'))->tap('pinned-bar');
 
-    // React shows the reactions in the sheet, and reacting goes back to the pinned messages.
-    $screen->tap('pin-1-react')->assertSet('sheet', Conversation::ReactionsSheet);
+    // React shows the bubble over the sheet, and reacting leaves the pinned messages up.
+    $screen->tap('pin-1-react')
+        ->assertSet('reactionsFor', 1)
+        ->assertSet('reactsFromPinned', true);
+
+    expect(childRefs($screen, 'pin-1-actions'))->toContain('reactions-bubble');
+
     finishRefreshes($screen->tap('quick-0'))
-        ->assertSet('sheet', Conversation::PinnedSheet)
+        ->assertSet('reactionsFor', null)
         ->assertSet('sheetOpen', true);
 
     expect(sentTo('POST', 'remotes/messages/1/reactions'))->toHaveCount(1)
@@ -895,6 +1001,26 @@ it('replies and reacts to a pinned message from the sheet, even one from before 
 
     expect(json_decode(sentTo('POST', 'remotes/orgs/org-1/messages')[0], true)['reply_to_id'])->toBe(1);
 });
+
+it('goes back to the pinned messages from the emoji picker, picked or not', function (?string $picked) {
+    serveOrgThread(orgThreadJson([orgMessageJson(['id' => 5, 'body' => 'hello org'])], ['pinned' => [
+        orgMessageJson(['id' => 1, 'body' => 'standup in 10?']),
+    ]]));
+
+    $screen = finishRefreshes(Native::visit('/remotes/orgs/org-1'))->tap('pinned-bar')->tap('pin-1-react')->tap('more-reactions')
+        // iOS tells the sheet it closed once it has made way for the picker.
+        ->dismissSheet('message-sheet')
+        ->assertSet('sheetOpen', false);
+
+    finishRefreshes($picked === null ? $screen->dismissSheet('emoji-picker') : $screen->select('emoji-picker', $picked))
+        ->assertSet('sheetOpen', true)
+        ->assertSet('emojiPickerFor', null);
+
+    expect(sentTo('POST', 'remotes/messages/1/reactions'))->toHaveCount($picked === null ? 0 : 1);
+})->with([
+    'picked' => ['🎉'],
+    'closed' => [null],
+]);
 
 it('shows three lines of a long pinned message, and the rest with Show more', function () {
     $long = implode("\n", ['release checklist for today:', '1. tag 2.4', '2. post the changelog', '3. ping the mobile folks']);

@@ -139,40 +139,15 @@
         </native:bottom-bar>
     @endif
 
-    {{-- React on a message: the reactions the web offers first, then the rest. Or an org's pinned messages. --}}
-    <native:bottom-sheet ref="message-sheet" :visible="$sheetOpen" :detents="$sheet === \App\NativeComponents\Conversation::PinnedSheet ? 'medium,large' : '0.45'" @dismiss="messageSheetClosed">
-        @if ($sheet === \App\NativeComponents\Conversation::PinnedSheet)
-            @if ($pinned !== [])
-                @include('native.partials.pinned-sheet')
-            @endif
-        @elseif ($sheetMessage)
-            <native:column class="w-full px-5 pt-6 pb-8 gap-5">
-                <native:row ref="quick-reactions" class="w-full gap-3 justify-center">
-                    @foreach ($quickReactions as $emoji)
-                        <native:pressable ref="quick-{{ $loop->index }}" @press="toggleReaction({{ $sheetMessage->id }}, '{{ $emoji }}')" a11y-label="React with {{ $emoji }}">
-                            <native:stack :width="52" :height="52" center class="rounded-full {{ $sheetMessage->hasReacted($viewer?->id, $emoji) ? 'bg-theme-'.$myColour.'/20' : 'bg-theme-wash' }}">
-                                <native:text class="text-[26px]">{{ $emoji }}</native:text>
-                            </native:stack>
-                        </native:pressable>
-                    @endforeach
-                </native:row>
-                {{-- EDGE's rows don't wrap on iOS, so the rest come in rows of eight. --}}
-                <native:column ref="more-reactions" class="w-full gap-1 items-center">
-                    @foreach (array_chunk($moreReactions, 8) as $row)
-                        <native:row class="gap-1">
-                            @foreach ($row as $emoji)
-                                <native:pressable ref="more-{{ $loop->parent->index * 8 + $loop->index }}" @press="toggleReaction({{ $sheetMessage->id }}, '{{ $emoji }}')" a11y-label="React with {{ $emoji }}">
-                                    <native:stack :width="40" :height="40" center class="rounded-full {{ $sheetMessage->hasReacted($viewer?->id, $emoji) ? 'bg-theme-'.$myColour.'/20' : 'bg-theme-surface' }}">
-                                        <native:text class="text-[22px]">{{ $emoji }}</native:text>
-                                    </native:stack>
-                                </native:pressable>
-                            @endforeach
-                        </native:row>
-                    @endforeach
-                </native:column>
-            </native:column>
+    {{-- An org's pinned messages. --}}
+    <native:bottom-sheet ref="message-sheet" :visible="$sheetOpen" detents="medium,large" @dismiss="messageSheetClosed">
+        @if ($pinned !== [])
+            @include('native.partials.pinned-sheet')
         @endif
     </native:bottom-sheet>
 
     @include('native.partials.mute-sheet')
+
+    {{-- More reactions, from the bubble or anywhere else: the emoji keyboard on iOS, Jetpack's emoji picker on Android. --}}
+    <native:emoji-picker ref="emoji-picker" :visible="$emojiPickerFor !== null" @change="emojiPicked" @dismiss="emojiPickerClosed" />
 </native:column>
