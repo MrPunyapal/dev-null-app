@@ -217,6 +217,13 @@ class Conversation extends NativeComponent
 
     public function onResume(): void
     {
+        // You left the org from its members: back to the inbox, which no longer lists it.
+        if ($this->isOrg() && app(ResponseCache::class)->takeLeftOrg($this->org)) {
+            $this->back();
+
+            return;
+        }
+
         $this->forgetRefreshes();
         $this->showKept();
         $this->showPending();
@@ -238,9 +245,9 @@ class Conversation extends NativeComponent
 
         $items = [];
 
-        if (! $this->isOrg()) {
-            $items[] = NavAction::make('view-profile')->label('View profile')->icon(ios: Lucide::UserRound->ios(), android: Lucide::UserRound->android())->press('viewProfile');
-        }
+        $items[] = $this->isOrg()
+            ? NavAction::make('members')->label('Members')->icon(ios: Lucide::UsersRound->ios(), android: Lucide::UsersRound->android())->press('viewMembers')
+            : NavAction::make('view-profile')->label('View profile')->icon(ios: Lucide::UserRound->ios(), android: Lucide::UserRound->android())->press('viewProfile');
 
         $items[] = $this->thread->pinnedAt !== null
             ? NavAction::make('unpin')->label('Unpin')->icon(ios: Lucide::PinOff->ios(), android: Lucide::PinOff->android())->press('unpin')
@@ -549,6 +556,16 @@ class Conversation extends NativeComponent
     {
         if ($this->username !== '') {
             $this->openInTab('/users/'.rawurlencode($this->username), $this->thread?->partner === null ? [] : ['user' => $this->thread->partner]);
+        }
+    }
+
+    /**
+     * The org's members, where a maintainer manages them and anyone can leave.
+     */
+    public function viewMembers(): void
+    {
+        if ($this->isOrg()) {
+            $this->openInTab('/orgs/'.rawurlencode($this->org).'/members');
         }
     }
 
