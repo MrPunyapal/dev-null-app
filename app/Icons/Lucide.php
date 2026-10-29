@@ -99,6 +99,7 @@ enum Lucide
     case Pause;
     case RotateCw;
     case Square;
+    case Copy;
 
     /**
      * The icon the web's inbox draws for a kind of notification.
@@ -210,6 +211,7 @@ enum Lucide
             self::Pause => 'pause-filled',
             self::RotateCw => 'rotate-cw',
             self::Square => 'square-filled',
+            self::Copy => 'copy',
             default => null,
         };
 
