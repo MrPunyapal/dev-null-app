@@ -49,7 +49,7 @@
     <native:fab
         ref="compose-fab"
         icon="edit"
-        bottom-offset="88"
+        bottom-offset="72"
         edge-offset="20"
         a11y-label="New commit"
         @tap="composeInSheet"
